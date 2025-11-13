@@ -44,10 +44,9 @@ SET(ENV{PKG_CONFIG_PATH} ${CMAKE_BINARY_DIR}/external/lib/pkgconfig)
 ExternalProject_Add(htslib
     URL https://github.com/samtools/htslib/releases/download/1.9/htslib-1.9.tar.bz2
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-    CONFIGURE_COMMAND ""
-    PATCH_COMMAND sed -i "s/^CFLAGS .*$/CFLAGS = -gdwarf -O3 -DNDEBUG -march=ivybridge/" Makefile
+    CONFIGURE_COMMAND ./configure --enable-libcurl 
     BUILD_IN_SOURCE 1
-    BUILD_COMMAND bash -c "make -n && make -j$(nproc)"
+    BUILD_COMMAND bash -c "make -j$(nproc)"
     INSTALL_COMMAND ""
     LOG_DOWNLOAD ON
     LOG_BUILD ON
@@ -84,20 +83,22 @@ set_property(TARGET libhts PROPERTY IMPORTED_LOCATION ${LIBHTS_A})
 #      b) go through perf/FlameGraph profiling flow and check that no
 #         rocksdb function has a big chunk like 5% or more
 ExternalProject_Add(rocksdb
-    URL https://github.com/facebook/rocksdb/archive/v6.29.3.tar.gz
+    SOURCE_DIR ./rocksdb 
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
     CONFIGURE_COMMAND ""
     BUILD_IN_SOURCE 1
-    BUILD_COMMAND bash -c "export PORTABLE=1 && export DISABLE_JEMALLOC=1 && export OPT='-DNDEBUG -O3 -march=ivybridge -msse4.2 -DHAVE_SSE42 -mpclmul -DROCKSDB_NO_DYNAMIC_EXTENSION' && make -n static_lib && make -j$(nproc) static_lib"
+    BUILD_COMMAND bash -c "export PORTABLE=1 && export DISABLE_JEMALLOC=1 && export OPT='-DNDEBUG -O3 -march=native -Wno-redundant-move -DROCKSDB_NO_DYNAMIC_EXTENSION' && make -n static_lib && make -j$(nproc) static_lib"
     INSTALL_COMMAND ""
     LOG_DOWNLOAD ON
     LOG_BUILD ON
   )
 ExternalProject_Get_Property(rocksdb source_dir)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-redundant-move")
 set(ROCKSDB_INCLUDE_DIR ${source_dir}/include)
 include_directories(${ROCKSDB_INCLUDE_DIR})
 set(ROCKSDB_UTIL_DIR ${source_dir}/util)
 include_directories(${ROCKSDB_UTIL_DIR})
+include_directories(${source_dir})
 ExternalProject_Get_Property(rocksdb binary_dir)
 add_library(librocksdb STATIC IMPORTED)
 set(LIBROCKSDB_A ${binary_dir}/librocksdb.a)
@@ -108,7 +109,7 @@ set_property(TARGET librocksdb PROPERTY IMPORTED_LOCATION ${LIBROCKSDB_A})
 ExternalProject_Add(yaml-cpp
     URL https://github.com/jbeder/yaml-cpp/archive/yaml-cpp-0.6.3.zip
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-    CONFIGURE_COMMAND cmake -DYAML_CPP_BUILD_TOOLS=OFF -DYAML_CPP_BUILD_CONTRIB=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-march=ivybridge .
+    CONFIGURE_COMMAND cmake -DYAML_CPP_BUILD_TOOLS=OFF -DYAML_CPP_BUILD_CONTRIB=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-march=native .
     BUILD_IN_SOURCE 1
     BUILD_COMMAND bash -c "make -j$(nproc)"
     INSTALL_COMMAND ""
@@ -136,18 +137,22 @@ ExternalProject_Get_Property(CTPL source_dir)
 set(CTPL_INCLUDE_DIR ${source_dir})
 include_directories(${CTPL_INCLUDE_DIR})
 
-ExternalProject_Add(fcmm
-    URL https://github.com/giacomodrago/fcmm/archive/v1.0.1.zip
+# TBB
+ExternalProject_Add(tbb
+    URL https://github.com/uxlfoundation/oneTBB/archive/refs/tags/v2022.2.0.tar.gz
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
-    CONFIGURE_COMMAND ""
-    BUILD_IN_SOURCE 1
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
+    # Configure TBB's cmake build. We want a static library, and we don't need the tests.
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/external -DTBB_TEST=OFF -DBUILD_SHARED_LIBS=OFF
+    # After build, install it to the prefix.
+    INSTALL_COMMAND make install
     LOG_DOWNLOAD ON
-  )
-ExternalProject_Get_Property(fcmm source_dir)
-set(FCMM_INCLUDE_DIR ${source_dir})
-include_directories(${FCMM_INCLUDE_DIR})
+    LOG_BUILD ON
+)
+# Define the imported library target for TBB
+add_library(libtbb STATIC IMPORTED)
+set(LIBTBB_A ${CMAKE_BINARY_DIR}/external/lib/libtbb.a)
+set_property(TARGET libtbb PROPERTY IMPORTED_LOCATION ${LIBTBB_A})
+include_directories(${CMAKE_BINARY_DIR}/external/include)
 
 ExternalProject_Add(spdlog
     URL https://github.com/gabime/spdlog/archive/v1.8.2.tar.gz
@@ -163,7 +168,7 @@ set(SPDLOG_INCLUDE_DIR ${source_dir}/include)
 include_directories(${SPDLOG_INCLUDE_DIR})
 
 ExternalProject_Add(capnp
-    URL https://capnproto.org/capnproto-c++-0.7.0.tar.gz
+    URL https://capnproto.org/capnproto-c++-1.2.0.tar.gz
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external
     CONFIGURE_COMMAND ./configure --prefix=${CMAKE_BINARY_DIR}/external
     BUILD_IN_SOURCE 1
@@ -174,7 +179,7 @@ ExternalProject_Add(capnp
 
 execute_process(COMMAND git describe --tags --long --dirty --always
                 OUTPUT_VARIABLE GIT_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DGIT_REVISION=\"\\\"${GIT_REVISION}\\\"\" -pthread -std=c++14 -Wall -Werror=return-type -Werror=unused-result -Wno-sign-compare -Wno-write-strings -Wno-terminate -fdiagnostics-color=auto -march=ivybridge")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DGIT_REVISION=\"${GIT_REVISION}\" -pthread -std=c++17 -Wall -Werror=return-type -Werror=unused-result -Wno-sign-compare -Wno-write-strings -Wno-terminate -fdiagnostics-color=auto -march=native")
 set(CMAKE_CXX_FLAGS_RELEASE "-gdwarf -DNDEBUG -O3")
 
 ################################
@@ -183,6 +188,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-gdwarf -DNDEBUG -O3")
 set(COMMON_INCLUDES ${PROJECT_SOURCE_DIR}/include)
 include_directories(${COMMON_INCLUDES} src)
 include_directories(${COMMON_INCLUDES} src/rocksdb/include)
+include_directories(${COMMON_INCLUDES} src/rocksdb)
 include_directories(${COMMON_INCLUDES} capnp/serialize)
 
 # Invoke cap'n proto IDL compiler, to generate C++ serialization code from
@@ -217,16 +223,16 @@ add_dependencies(glnexus htslib)
 add_dependencies(glnexus rocksdb)
 add_dependencies(glnexus yaml-cpp)
 add_dependencies(glnexus CTPL)
-add_dependencies(glnexus fcmm)
+add_dependencies(glnexus tbb)
 add_dependencies(glnexus spdlog)
 add_dependencies(glnexus capnp)
 add_library(libglnexus ALIAS glnexus)
 
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -march=ivybridge -static-libstdc++ -pthread")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -march=native -static-libstdc++ -pthread")
 
 add_executable(glnexus_cli cli/glnexus_cli.cc)
 add_dependencies(glnexus_cli libglnexus)
-target_link_libraries(glnexus_cli glnexus libhts librocksdb libyaml-cpp libz.a libsnappy.a libbz2.a libzstd.a liblzma.a librt.a libcapnp.a libkj.a)
+target_link_libraries(glnexus_cli glnexus libhts librocksdb libyaml-cpp libtbb libz.a libsnappy.a libbz2.a libzstd.a liblzma.a librt.a libcapnp.a libkj.a m deflate curl crypto)
 
 install(TARGETS glnexus_cli DESTINATION bin)
 
@@ -244,7 +250,6 @@ ExternalProject_Add(catch
   )
 ExternalProject_Get_Property(catch source_dir)
 include_directories(${source_dir}/single_include)
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-function")
 add_executable(unit_tests
                 src/diploid.cc test/diploid.cc
@@ -262,7 +267,7 @@ add_executable(unit_tests
                 test/cli.cc)
 add_dependencies(unit_tests catch)
 add_dependencies(unit_tests libglnexus)
-target_link_libraries(unit_tests glnexus libhts librocksdb libyaml-cpp libz.a libsnappy.a libbz2.a libzstd.a liblzma.a librt.a libcapnp.a libkj.a)
+target_link_libraries(unit_tests glnexus libhts librocksdb libyaml-cpp libtbb libz.a libsnappy.a libbz2.a libzstd.a liblzma.a librt.a libcapnp.a libkj.a m deflate curl crypto)
 
 include(CTest)
 add_test(NAME unit_tests COMMAND ./unit_tests -d yes)
