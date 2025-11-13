@@ -12,7 +12,7 @@
 #include <thread>
 #include <mutex>
 #include <sys/time.h>
-#include "fcmm.hpp"
+#include "tbb/concurrent_hash_map.h"
 #include "khash.h"
 #include <regex>
 #include <endian.h>
@@ -50,11 +50,14 @@ struct ActiveMetadata {
 // std::hash<string> using the string hash function from htslib
 class KStringHash {
 public:
-    std::size_t operator()(string const& s) const  {
+    static size_t hash(const string& s) {
         return (size_t) kh_str_hash_func(s.c_str());
     }
+    static bool equal(const string& s1, const string& s2) {
+        return s1 == s2;
+    }
 };
-using BCFHeaderCache = fcmm::Fcmm<string,shared_ptr<const bcf_hdr_t>,hash<string>,KStringHash>;
+using BCFHeaderCache = tbb::concurrent_hash_map<string,shared_ptr<const bcf_hdr_t>,KStringHash>;
 // this is not a hard limit but the FCMM performance degrades if it's too low
 const size_t BCF_HEADER_CACHE_SIZE = 65536;
 
@@ -409,10 +412,10 @@ shared_ptr<StatsRangeQuery> BCFKeyValueData::getRangeStats() {
 
 Status BCFKeyValueData::dataset_header(const string& dataset,
                                        shared_ptr<const bcf_hdr_t>* hdr) {
-    auto cached = body_->header_cache->end();
-    if ((cached = body_->header_cache->find(dataset)) != body_->header_cache->end()) {
+    BCFHeaderCache::const_accessor accessor;
+    if (body_->header_cache->find(accessor, dataset)) {
         // Return memoized header
-        *hdr = cached->second;
+        *hdr = accessor->second;
         assert(hdr);
         return Status::OK();
     }
@@ -464,13 +467,19 @@ static Status ScanBCFBucket(const range& bucket, const string& dataset,
     //             https://lemire.me/blog/2012/05/31/data-alignment-for-speed-myth-or-reality/
     //             http://pzemtsov.github.io/2016/11/06/bug-story-alignment-on-x86.html
     //             https://github.com/capnproto/capnproto/commit/3aa2b2aa02edb1c160b154ad74c08c929a02512a
+    const char* data_buf = data.data;
+    size_t data_size = data.size;
+    char* aligned_buf = nullptr; 
     #ifndef __x86_64__
     if (uint64_t(data.data) % sizeof(::capnp::word)) {
-         return Status::Failure("BCFBucketReader: input buffer isn't word-aligned");
+	    aligned_buf = (char*)aligned_alloc(sizeof(::capnp::word), data.size); 
+	    if (!aligned_buf) return Status::Failure("aligned_alloc failed");
+	    memcpy(aligned_buf, data.data, data.size);
+	    data_buf = aligned_buf;
     }
     #endif
     try {
-        ::capnp::UnalignedFlatArrayMessageReader message(kj::ArrayPtr<const ::capnp::word>((::capnp::word*)data.data, data.size / sizeof(::capnp::word)));
+        ::capnp::FlatArrayMessageReader message(kj::ArrayPtr<const ::capnp::word>((::capnp::word*)data_buf, data_size / sizeof(::capnp::word)));
         capnp::BCFBucket::Reader bucket_reader = message.getRoot<capnp::BCFBucket>();
 
         // Scan: begin at a position informed by the 'skip index'
@@ -510,8 +519,10 @@ static Status ScanBCFBucket(const range& bucket, const string& dataset,
             }
         }
     } catch (exception &e) {
+        if (aligned_buf) free(aligned_buf);    
         return Status::IOError("exception deserializing BCF bucket", e.what());
     }
+    if (aligned_buf) free(aligned_buf);
     return Status::OK();
 }
 

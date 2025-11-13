@@ -6,6 +6,7 @@
 #include "compare_queries.h"
 #include "catch.hpp"
 #include "ctpl_stl.h"
+
 using namespace std;
 using namespace GLnexus;
 
@@ -137,6 +138,10 @@ namespace KeyValueMem {
 
         Status flush() override {
             return Status::OK();
+        }
+
+        Status CreateCheckpoint(const std::string& checkpoint_dir) override {
+            return Status::NotImplemented("KeyValueMem::DB does not support CreateCheckpoint");
         }
 
         void wipe() {
@@ -1527,8 +1532,8 @@ TEST_CASE("BCFKeyValueData NA12878 import and query") {
         auto fut = threadpool.push([&, i](int tid){
             Status ls;
             auto qrec = all_chr17[rand() % all_chr17.size()];
-            int lo = max(0, qrec->pos - (rand() % 10));
-            int hi = lo+(rand()%10)+1;
+	    int lo = max(0, qrec->pos - (rand() % 10));
+	    int hi = lo+(rand()%10)+1;
             range q(16, lo, hi);
 
             std::vector<std::shared_ptr<bcf1_t> > resultset, truthset;

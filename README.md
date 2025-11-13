@@ -2,6 +2,8 @@
 **From DNAnexus R&D: scalable gVCF merging and joint variant calling for population sequencing projects.**
 (GL, genotype likelihood)
 
+### This fork was modified by Codex Genetics Limited to be built on ARM64 CPU only. Docker is not tested.
+
 ### Reading
 
 [Our 2018 manuscript](http://dx.doi.org/10.1101/343970) with collaborators at [Regeneron Genetics Center](https://www.regeneron.com/genetics-center) and [Baylor College of Medicine](https://www.hgsc.bcm.edu/) details the design of GLnexus and scientific validation using up to 240,000 human exomes and 22,600 genomes. Compared to the DNAnexus cloud-native deployment used for such large projects, this open-source version produces identical scientific results but lacks some of the scalability and production-oriented features.

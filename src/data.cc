@@ -1,6 +1,6 @@
 #include <assert.h>
 #include "data.h"
-#include "fcmm.hpp"
+#include "tbb/concurrent_hash_map.h"
 #include "khash.h"
 
 using namespace std;
@@ -10,12 +10,15 @@ namespace GLnexus {
 // hash<string> using the string hash function from htslib
 class KStringHash {
 public:
-    size_t operator()(string const& s) const  {
+    static size_t hash(const string& s) {
         return (size_t) kh_str_hash_func(s.c_str());
     }
+    static bool equal(const string& s1, const string& s2) {
+        return s1 == s2;
+    }
 };
-using StringCache = fcmm::Fcmm<string,string,hash<string>,KStringHash>;
-using StringSetCache = fcmm::Fcmm<string,shared_ptr<const set<string>>,hash<string>,KStringHash>;
+using StringCache = tbb::concurrent_hash_map<string,string,KStringHash>;
+using StringSetCache = tbb::concurrent_hash_map<string,shared_ptr<const set<string>>,KStringHash>;
 // this is not a hard limit but the FCMM performance degrades if it's too low
 const size_t CACHE_SIZE = 4096;
 
@@ -34,9 +37,9 @@ Status MetadataCache::Start(Metadata& inner, unique_ptr<MetadataCache>& ptr) {
     ptr.reset(new MetadataCache);
     ptr->body_.reset(new MetadataCache::body);
     ptr->body_->inner = &inner;
-    ptr->body_->sampleset_samples_cache = make_unique<StringSetCache>(CACHE_SIZE);
-    ptr->body_->sample_dataset_cache = make_unique<StringCache>(16 * CACHE_SIZE);
-    ptr->body_->sampleset_datasets_cache = make_unique<StringSetCache>(CACHE_SIZE);
+    ptr->body_->sampleset_samples_cache = make_unique<StringSetCache>();
+    ptr->body_->sample_dataset_cache = make_unique<StringCache>();
+    ptr->body_->sampleset_datasets_cache = make_unique<StringSetCache>();
     return ptr->body_->inner->contigs(ptr->body_->contigs);
 }
 
@@ -46,11 +49,10 @@ Status MetadataCache::contigs(vector<pair<string,size_t> >& ans) const {
 }
 
 Status MetadataCache::sampleset_samples(const string& sampleset, shared_ptr<const set<string> >& ans) const {
-    auto cached = body_->sampleset_samples_cache->end();
-    if ((cached = body_->sampleset_samples_cache->find(sampleset))
-            != body_->sampleset_samples_cache->end()) {
-        ans = cached->second;
-        assert(ans);
+    StringSetCache::const_accessor accessor;
+    if (body_->sampleset_samples_cache->find(accessor, sampleset)) {
+        ans = accessor->second;
+	assert(ans);
         return Status::OK();
     }
 
@@ -61,11 +63,10 @@ Status MetadataCache::sampleset_samples(const string& sampleset, shared_ptr<cons
 }
 
 Status MetadataCache::sample_dataset(const string& sample, string& ans) const {
-    auto cached = body_->sample_dataset_cache->end();
-    if ((cached = body_->sample_dataset_cache->find(sample))
-            != body_->sample_dataset_cache->end()) {
-        ans = cached->second;
-        return Status::OK();
+    StringCache::const_accessor accessor;
+    if (body_->sample_dataset_cache->find(accessor, sample)) {
+        ans = accessor->second;
+	return Status::OK();
     }
 
     Status s;
@@ -93,10 +94,9 @@ Status MetadataCache::sampleset_datasets(const string& sampleset,
     Status s;
     S(sampleset_samples(sampleset, samples));
 
-    auto cached = body_->sampleset_datasets_cache->end();
-    if ((cached = body_->sampleset_datasets_cache->find(sampleset))
-            != body_->sampleset_datasets_cache->end()) {
-        datasets_out = cached->second;
+    StringSetCache::const_accessor accessor;
+    if (body_->sampleset_datasets_cache->find(accessor, sampleset)) {
+        datasets_out = accessor->second;
         assert(datasets_out);
         return Status::OK();
     }

@@ -1,0 +1,190 @@
+BCF format mismatch
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+unit_tests is a Catch v1.12.2 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Ensure uncompressed BCF encoding remains consistent
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/htslib_behaviors.cc:307
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/htslib_behaviors.cc:391: FAILED:
+  REQUIRE( rc == 0 )
+with expansion:
+  1 == 0
+
+OK
+OK
+-------------------------------------------------------------------------------
+BCFKeyValueData::import_gvcf
+  all_samples_sampleset
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:319
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:321: FAILED:
+  REQUIRE( s.ok() )
+with expansion:
+  false
+
+-------------------------------------------------------------------------------
+BCFKeyValueData::import_gvcf
+  new_sampleset
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:427
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:429: FAILED:
+  REQUIRE( s.ok() )
+with expansion:
+  false
+
+-------------------------------------------------------------------------------
+BCFKeyValueData BCF retrieval
+  dataset_range
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:560
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:569: FAILED:
+  REQUIRE( records.size() == 5 )
+with expansion:
+  0 == 5
+
+IOError: reading gVCF header (test/data/synthetic_A.21.gvcf)
+-------------------------------------------------------------------------------
+BCFKeyValueData range overlap with a single dataset
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:643
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:664: FAILED:
+  REQUIRE( s.ok() )
+with expansion:
+  false
+
+IOError: reading gVCF header (test/data/long_ref_intervals_A.gvcf)
+-------------------------------------------------------------------------------
+BCFKeyValueData long_confidence_intervals
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:716
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:737: FAILED:
+  REQUIRE( s.ok() )
+with expansion:
+  false
+
+-------------------------------------------------------------------------------
+BCFKeyValueData long_confidence_intervals 2
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:774
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:790: FAILED:
+  REQUIRE( s.ok() )
+with expansion:
+  false
+
+-------------------------------------------------------------------------------
+BCFData::sampleset_range
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:866
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:880: FAILED:
+  REQUIRE( s.ok() )
+with expansion:
+  false
+
+-------------------------------------------------------------------------------
+BCFKeyValueData::sampleset_range
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:1077
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:1091: FAILED:
+  REQUIRE( s.ok() )
+with expansion:
+  false
+
+-------------------------------------------------------------------------------
+BCFKeyValueData compare iterator implementations
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:1347
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:1363: FAILED:
+  REQUIRE( s.ok() )
+with expansion:
+  false
+
+-------------------------------------------------------------------------------
+BCFKeyValueData::import_gvcf input validation
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:1416
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:1433: FAILED:
+  REQUIRE( s.str().find("ZCCAT") != string::npos )
+with expansion:
+  18446744073709551615 (0xffffffffffffffff)
+  !=
+  18446744073709551615 (0xffffffffffffffff)
+
+-------------------------------------------------------------------------------
+BCFKeyValueData NA12878 import and query
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:1462
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/BCFKeyValueData.cc:1521: FAILED:
+  REQUIRE( all_chr17.size() == 8199 )
+with expansion:
+  0 == 8199 (0x2007)
+
+-------------------------------------------------------------------------------
+RocksDB BCF retrieval
+  dataset_range
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/rocks_integration.cc:277
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/rocks_integration.cc:286: FAILED:
+  REQUIRE( records.size() == 5 )
+with expansion:
+  0 == 5
+
+-------------------------------------------------------------------------------
+RocksKeyValue prefix mode
+  dataset_range
+-------------------------------------------------------------------------------
+/home/allenyu/src/GLnexus/test/rocks_integration.cc:368
+...............................................................................
+
+/home/allenyu/src/GLnexus/test/rocks_integration.cc:378: FAILED:
+  REQUIRE( records.size() == 2 )
+with expansion:
+  0 == 2
+
+OK
+            Name          CRC32C	Description
+            gatk      1926883223	Joint-call GATK-style gVCFs
+ gatk_unfiltered      4039280095	Merge GATK-style gVCFs with no QC filters or genotype revision
+          xAtlas      1991666133	Joint-call xAtlas gVCFs
+xAtlas_unfiltered       221875257	Merge xAtlas gVCFs with no QC filters or genotype revision
+          weCall      2898360729	Joint-call weCall gVCFs
+weCall_unfiltered      4254257210	Merge weCall gVCFs with no filtering or genotype revision
+     DeepVariant      2932316105	Joint call DeepVariant whole genome sequencing gVCFs
+  DeepVariantWGS      2932316105	Joint call DeepVariant whole genome sequencing gVCFs
+  DeepVariantWES      1063427682	Joint call DeepVariant whole exome sequencing gVCFs
+DeepVariantWES_MED_DP      2412618877	Joint call DeepVariant whole exome sequencing gVCFs, populating 0/0 DP from MED_DP instead of MIN_DP
+DeepVariant_unfiltered      3285998180	Merge DeepVariant gVCFs with no QC filters or genotype revision
+        Strelka2       395868656	[EXPERIMENTAL] Merge Strelka2 gVCFs with no QC filters or genotype revision
+             GxS      3929547104	[EXPERIMENTAL] merging for GxS
+===============================================================================
+test cases:     115 |     102 passed | 13 failed
+assertions: 2325389 | 2325375 passed | 14 failed
+

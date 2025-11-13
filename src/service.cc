@@ -12,7 +12,11 @@
 #include <map>
 #include <assert.h>
 #include <tuple>
-#include "ctpl_stl.h"
+#include <ctpl_stl.h>
+
+// https://gcc.gnu.org/onlinedocs/cpp/Stringizing.html
+#define STRINGIFY(x) #x
+#define MACRO_TO_STRING(x) STRINGIFY(x)
 
 using namespace std;
 
@@ -193,7 +197,7 @@ static Status prepare_bcf_header(const vector<pair<string,size_t> >& contigs,
                                  const vector<string>& extra_header_lines,
                                  shared_ptr<bcf_hdr_t>& ans) {
     vector<string> hdr_lines;
-    hdr_lines.push_back("##GLnexusVersion=" + string(GIT_REVISION));
+    hdr_lines.push_back("##GLnexusVersion=" + string(MACRO_TO_STRING(GIT_REVISION)));
     for (const auto& line : extra_header_lines) {
         hdr_lines.push_back(line);
     }
