@@ -19,6 +19,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/utilities/checkpoint.h"
 
 namespace GLnexus {
 namespace RocksKeyValue {
@@ -576,6 +577,17 @@ public:
             }
         }
         return Status::OK();
+    }
+
+    Status CreateCheckpoint(const std::string& checkpoint_dir) override {
+        rocksdb::Checkpoint* checkpoint;
+        rocksdb::Status s = rocksdb::Checkpoint::Create(db_, &checkpoint);
+        if (!s.ok()) {
+            return convertStatus(s);
+        }
+        std::unique_ptr<rocksdb::Checkpoint> checkpoint_ptr(checkpoint);
+        s = checkpoint_ptr->CreateCheckpoint(checkpoint_dir);
+        return convertStatus(s);
     }
 };
 
