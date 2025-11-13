@@ -134,6 +134,9 @@ public:
 
     /// Ensure all writes are flushed to storage
     virtual Status flush() = 0;
+
+    /// Create a checkpoint of the database
+    virtual Status CreateCheckpoint(const std::string& checkpoint_dir) = 0;
 };
 
 }}
