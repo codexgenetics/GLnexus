@@ -6,6 +6,7 @@
 #include <getopt.h>
 #include <sstream>
 #include <cstdlib>
+#include <sys/stat.h>
 #include "vcf.h"
 #include "hfile.h"
 #include "service.h"
@@ -16,6 +17,10 @@
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/stdout_sinks.h"
 #include "cli_utils.h"
+
+// https://gcc.gnu.org/onlinedocs/cpp/Stringizing.html
+#define STRINGIFY(x) #x
+#define MACRO_TO_STRING(x) STRINGIFY(x)
 
 using namespace std;
 
@@ -45,13 +50,34 @@ static int all_steps(const vector<string> &vcf_files,
                      size_t mem_budget, size_t nr_threads,
                      bool debug,
                      bool iter_compare,
-                     size_t bucket_size) {
+                     size_t bucket_size,
+                     const string &checkpoint_out_path,
+                     const string &checkpoint_in_path,
+                     bool checkpoint_only,
+                     const string &output_filename) {
     GLnexus::Status s;
     GLnexus::unifier_config unifier_cfg;
     GLnexus::genotyper_config genotyper_cfg;
     string cfg_txt, cfg_crc32c;
+    bool is_loaded_from_checkpoint = false;
 
-    if (vcf_files.empty()) {
+    if (!checkpoint_in_path.empty()) {
+        struct stat info;
+        if (stat(dbpath.c_str(), &info) == 0 && (info.st_mode & S_IFDIR)) {
+            console->error("Database directory {} already exists. Please remove it before loading from a checkpoint.", dbpath);
+            return 1;
+        }
+
+        string cmd = "ln -s " + checkpoint_in_path + " " + dbpath;
+        console->info("Loading database from checkpoint by creating a symbolic link: {}", cmd);
+        if (system(cmd.c_str()) != 0) {
+            console->error("Failed to create symbolic link from {} to {}.", checkpoint_in_path, dbpath);
+            return 1;
+        }
+        is_loaded_from_checkpoint = true;
+    }
+
+    if (vcf_files.empty() && !is_loaded_from_checkpoint) {
         console->error("No source GVCF files specified");
         return 1;
     }
@@ -62,16 +88,20 @@ static int all_steps(const vector<string> &vcf_files,
 
     // initilize empty database
     vector<pair<string,size_t> > contigs;
-    H("initialize database", GLnexus::cli::utils::db_init(console, dbpath, vcf_files[0], contigs,
-                                                          bucket_size));
-
-    {
-        // sanity check, see that we can get the contigs back
-        vector<pair<string,size_t> > contigs_dbg;
-        H("read the contigs back from DB",
-          GLnexus::cli::utils::db_get_contigs(console, dbpath, contigs_dbg));
-        if (contigs_dbg != contigs)
-            return GLnexus::Status::Invalid("error, contigs read from DB do not match originals");
+    if (is_loaded_from_checkpoint) {
+        H("read the contigs from DB",
+          GLnexus::cli::utils::db_get_contigs(console, dbpath, contigs));
+    } else {
+        H("initialize database", GLnexus::cli::utils::db_init(console, dbpath, vcf_files[0], contigs,
+                                                              bucket_size));
+        {
+            // sanity check, see that we can get the contigs back
+            vector<pair<string,size_t> > contigs_dbg;
+            H("read the contigs back from DB",
+              GLnexus::cli::utils::db_get_contigs(console, dbpath, contigs_dbg));
+            if (contigs_dbg != contigs)
+                return GLnexus::Status::Invalid("error, contigs read from DB do not match originals");
+        }
     }
 
     if (nr_threads == 0) {
@@ -80,11 +110,15 @@ static int all_steps(const vector<string> &vcf_files,
 
     // Load the GVCFs into the database
     unique_ptr<GLnexus::KeyValue::DB> db;
-    {
+    if (!is_loaded_from_checkpoint) {
         // use an empty range filter
         vector<GLnexus::range> ranges;
         H("bulk load into DB",
           GLnexus::cli::utils::db_bulk_load(console, mem_budget, nr_threads, vcf_files, dbpath, ranges, contigs, &db, false));
+    } else {
+        GLnexus::RocksKeyValue::config cfg;
+        cfg.thread_budget = nr_threads;
+        H("open database", GLnexus::RocksKeyValue::Open(dbpath, cfg, db));
     }
     assert(db);
 
@@ -160,6 +194,14 @@ static int all_steps(const vector<string> &vcf_files,
     }
 
     console->info("Finishing database compaction...");
+    if (!checkpoint_out_path.empty()) {
+        console->info("Creating checkpoint at {}", checkpoint_out_path);
+        H("create checkpoint", db->CreateCheckpoint(checkpoint_out_path));
+        if (checkpoint_only) {
+            console->info("Checkpoint created. Exiting as requested by --checkpoint-only.");
+            return 0;
+        }
+    }
     db.reset();
 
     // genotype
@@ -174,7 +216,7 @@ static int all_steps(const vector<string> &vcf_files,
         // if running in DNAnexus, record job ID in header
         hdr_lines.push_back(string("##DX_JOB_ID=")+DX_JOB_ID);
     }
-    string outfile("-");
+    string outfile(output_filename);
     H("genotype",
       GLnexus::cli::utils::genotype(console, mem_budget, nr_threads, dbpath, genotyper_cfg, sites, hdr_lines, outfile));
 
@@ -186,18 +228,24 @@ void help(const char* prog) {
     cout << "Usage: " << prog << " [options] /vcf/file/1 .. /vcf/file/N" << endl
          << "Merge and joint-call input gVCF files, emitting multi-sample BCF on standard output." << endl << endl
          << "Options:" << endl
-         << "  --dir DIR, -d DIR              scratch directory path (mustn't already exist; default: ./GLnexus.DB)" << endl
+         << "  --dir DIR, -d DIR              scratch directory path (default: ./GLnexus.DB)" << endl
          << "  --config X, -c X               configuration preset name or .yml filename (default: gatk)" << endl
-         << "  --bed FILE, -b FILE            three-column BED file with ranges to analyze (if neither --range nor --bed: use full length of all contigs)" << endl
-         << "  --list, -l                     expect given files to contain lists of gVCF filenames, one per line" << endl << endl
+         << "  --bed FILE, -b FILE            three-column BED file with ranges to analyze" << endl << endl
+         << "gVCF Input (choose one):" << endl
+         << "  --list FILE, -l FILE           text file containing a list of gVCF filenames, one per line" << endl
+         << "  (or provide gVCF files directly on the command line)" << endl << endl
+         << "Checkpointing:" << endl
+         << "  --checkpoint-in PATH           load database from checkpoint at PATH (cannot be used with gVCF input)" << endl
+         << "  --checkpoint-out PATH          save database checkpoint to PATH after data loading (requires gVCF input)" << endl
+         << "  --checkpoint-only              exit after creating checkpoint (requires --checkpoint-out)" << endl << endl
 
+         << "Other Options:" << endl
          << "  --more-PL, -P                  include PL from reference bands and other cases omitted by default" << endl
          << "  --squeeze, -S                  reduce pVCF size by suppressing detail in cells derived from reference bands" << endl
-         << "  --trim-uncalled-alleles, -a    remove alleles with no output GT calls in postprocessing" << endl << endl
-
+         << "  --trim-uncalled-alleles, -a    remove alleles with no output GT calls in postprocessing" << endl
          << "  --mem-gbytes X, -m X           memory budget, in gbytes (default: most of system memory)" << endl
-         << "  --threads X, -t X              thread budget (default: all hardware threads)" << endl << endl
-
+         << "  --threads X, -t X              thread budget (default: all hardware threads)" << endl
+         << "  --output FILE, -o FILE         BCF output file (default: standard output)" << endl
          << "  --help, -h                     print this help message" << endl
          << endl << "Configuration presets:" << endl;
     cout << GLnexus::cli::utils::describe_config_presets() << endl;
@@ -215,7 +263,7 @@ int main(int argc, char *argv[]) {
     #else
     #define BUILD_CONFIG "debug"
     #endif
-    console->info("glnexus_cli {} {} {}", BUILD_CONFIG, GIT_REVISION, __DATE__);
+    console->info("glnexus_cli {} {} {}", BUILD_CONFIG, MACRO_TO_STRING(GIT_REVISION), __DATE__);
     GLnexus::cli::utils::detect_jemalloc(console);
 
     if (argc < 2) {
@@ -237,6 +285,10 @@ int main(int argc, char *argv[]) {
         {"bucket_size", required_argument, 0, 'x'},
         {"debug", no_argument, 0, 'g'},
         {"iter_compare", no_argument, 0, 'i'},
+        {"output", required_argument, 0, 'o'},
+        {"checkpoint-out", required_argument, 0, 1},
+        {"checkpoint-in", required_argument, 0, 2},
+        {"checkpoint-only", no_argument, 0, 3},
         {0, 0, 0, 0}
     };
 
@@ -252,10 +304,29 @@ int main(int argc, char *argv[]) {
     string bedfilename;
     size_t mem_budget = 0, nr_threads = 0;
     size_t bucket_size = GLnexus::BCFKeyValueData::default_bucket_size;
+    string checkpoint_out_path, checkpoint_in_path;
+    bool checkpoint_only = false;
+    string output_filename = "-";
 
-    while (-1 != (c = getopt_long(argc, argv, "hPSadil:b:x:m:t:c:",
+    while (-1 != (c = getopt_long(argc, argv, "hPSadil:b:x:m:t:c:o:",
                                   long_options, nullptr))) {
         switch (c) {
+            case 1:
+                checkpoint_out_path = string(optarg);
+                break;
+
+            case 2:
+                checkpoint_in_path = string(optarg);
+                break;
+
+            case 3:
+                checkpoint_only = true;
+                break;
+
+            case 'o':
+                output_filename = string(optarg);
+                break;
+
             case 'd':
                 dbpath = string(optarg);
                 break;
@@ -332,8 +403,30 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (optind > argc-1) {
+    if (optind > argc-1 && checkpoint_in_path.empty()) {
         help(argv[0]);
+        return 1;
+    }
+
+    bool has_input_files = list_of_files || (optind < argc);
+
+    if (!checkpoint_in_path.empty() && has_input_files) {
+        console->error("Cannot provide input files when loading from a checkpoint with --checkpoint-in.");
+        return 1;
+    }
+
+    if (checkpoint_in_path.empty() && !has_input_files) {
+        console->error("Either provide input files or use --checkpoint-in to load from a checkpoint.");
+        return 1;
+    }
+
+    if (!checkpoint_out_path.empty() && !has_input_files) {
+        console->error("--checkpoint-out can only be used when providing input files.");
+        return 1;
+    }
+
+    if (checkpoint_only && checkpoint_out_path.empty()) {
+        console->error("--checkpoint-only can only be used with --checkpoint-out.");
         return 1;
     }
 
@@ -358,5 +451,5 @@ int main(int argc, char *argv[]) {
     }
 
     return all_steps(vcf_files, bedfilename, dbpath, config_name, more_PL, squeeze, trim_uncalled_alleles,
-                     mem_budget, nr_threads, debug, iter_compare, bucket_size);
+                     mem_budget, nr_threads, debug, iter_compare, bucket_size, checkpoint_out_path, checkpoint_in_path, checkpoint_only, output_filename);
 }
